@@ -418,7 +418,8 @@ export class Scanner {
                 this.config.threads
             );
             await this.updateHosts(onlineHosts);
-
+            // Ensure hosts.json is saved after updating hosts
+            await this.saveToFile();
         } catch (error) {
             console.error('Scan error:', error);
         } finally {
@@ -702,10 +703,10 @@ export class Scanner {
         }
 
         // Save updated hosts to file
-        await this.saveToFile();
     }
 
-    private async saveToFile() {
+    // Make saveToFile public
+    public async saveToFile() {
         const dataToSave: { [key: string]: any } = {};
         const now = Math.floor(Date.now() / 1000);
         

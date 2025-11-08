@@ -316,10 +316,10 @@ if (!id) {
     return;
 }
 
-// Normalize MAC address format (remove any non-alphanumeric characters and convert to uppercase)
-const normalizedId = id.replace(/[^0-9A-Fa-f]/g, '').toUpperCase();
+// Normalize MAC address format (remove any non-alphanumeric characters and convert to lowercase)
+const normalizedId = id.replace(/[^0-9A-Fa-f]/g, '').toLowerCase();
     
-if (!/^([0-9A-F]{2}){6}$/.test(normalizedId)) {
+if (!/^([0-9a-f]{2}){6}$/.test(normalizedId)) {
     console.error('Invalid MAC address format:', id);
     alert('Unable to delete device: Invalid MAC address format');
     return;
