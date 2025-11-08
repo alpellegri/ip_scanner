@@ -162,15 +162,23 @@ app.patch('/api/v1/hosts', async (req, res) => {
             return res.status(400).send('ID is required');
         }
 
+        // Leggi il file hosts.json per avere i dati più aggiornati
+        const data = await fs.readFile(HOSTS_PATH, 'utf-8');
+        const hostsData = JSON.parse(data);
+
         // Cerca l'host per ID (senza fare distinzione tra maiuscole e minuscole)
-        const hostToUpdate = Object.keys(hosts).find(key => 
+        const hostToUpdate = Object.keys(hostsData).find(key => 
             key && key.toLowerCase() === id.toLowerCase()
         );
 
         if (hostToUpdate) {
             // Aggiorna il nome dell'host
-            hosts[hostToUpdate].name = name;
-            await fs.writeFile(HOSTS_PATH, JSON.stringify(hosts, null, 2));
+            hostsData[hostToUpdate].name = name;
+            await fs.writeFile(HOSTS_PATH, JSON.stringify(hostsData, null, 2));
+            
+            // Aggiorna anche la variabile in memoria
+            hosts = hostsData;
+
             // console.log(`Host with ID ${hostToUpdate} updated successfully`);
             return res.json({ success: true });
         } else {
