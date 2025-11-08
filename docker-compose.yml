@@ -1,0 +1,13 @@
+version: '3.8'
+services:
+  ip_scanner:
+    build: .
+    container_name: ip_scanner
+    network_mode: host
+    cap_add:
+      - NET_RAW
+    volumes:
+      - ./data:/app/data
+    ports:
+      - "4000:4000"
+    restart: unless-stopped

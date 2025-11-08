@@ -1,0 +1,435 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Network Scanner</title>
+    <link href="https://fonts.googleapis.com/css2?family=Roboto+Mono:wght@400;600&display=swap" rel="stylesheet">
+    <style>
+        html, body, input, button, table, th, td, textarea {
+            font-family: 'Roboto Mono', monospace;
+        }
+        body {
+            margin: 5px;
+            background-color: #f5f5f5;
+            font-size: 13px;
+        }
+        .container {
+            max-width: 1400px;
+            margin: 0 auto;
+            background-color: white;
+            padding: 8px;
+            border-radius: 4px;
+            box-shadow: 0 1px 3px rgba(0,0,0,0.1);
+        }
+        table {
+            width: 100%;
+            border-collapse: collapse;
+            margin-top: 15px;
+            background-color: transparent;
+        }
+        th, td {
+            padding: 1px;
+            text-align: left;
+            border-bottom: 1px solid #e5e7e9;
+            vertical-align: middle;
+            line-height: 1.1;
+            word-break: break-word;
+            overflow-wrap: break-word;
+            font-size: 11px;
+        }
+        th {
+            color: #495057;
+            font-weight: 600;
+            font-size: 13px;
+            text-transform: uppercase;
+            letter-spacing: 0.3px;
+            border-bottom: 2px solid #adb5bd;
+        }
+        tbody tr:hover {
+            background-color: #e2e3e5;
+        }
+        td {
+            font-size: 14px;
+            color: #495057;
+        }
+        .online {
+            color: green;
+        }
+        .offline {
+            color: red;
+        }
+        .config-section {
+            margin-bottom: 15px;
+            padding: 8px 12px;
+            background-color: #f8f9fa;
+            border-radius: 4px;
+            border: 1px solid #d1d3d4;
+        }
+        .config-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            cursor: pointer;
+            user-select: none; /* Prevents text selection on click */
+        }
+        .config-header h2 {
+            margin: 0;
+        }
+        .toggle-icon {
+            font-size: 14px;
+            transition: transform 0.3s ease;
+        }
+        .toggle-icon.collapsed {
+            transform: rotate(0deg);
+        }
+        .config-content {
+            overflow: hidden;
+            transition: max-height 0.4s ease-out, padding-top 0.4s ease-out;
+            max-height: 500px; /* Large enough to fit content */
+            padding-top: 10px;
+        }
+        .config-content.collapsed {
+            max-height: 0;
+            padding-top: 0;
+        }
+        .config-form {
+            display: grid;
+            grid-template-columns: auto 1fr;
+            gap: 0px;
+            align-items: center;
+            max-width: 320px;
+        }
+        .config-form label {
+            margin-bottom: 3px;
+            font-weight: 600;
+            color: #495057;
+            font-size: 11px;
+            text-transform: uppercase;
+            letter-spacing: 0.2px;
+            margin-right: 5px;
+            text-align: left;
+        }
+        .input-with-button {
+            position: relative;
+            display: flex;
+            align-items: center;
+        }
+        /* Unified input style */
+        .config-form input[type="text"],
+        .config-form input[type="number"],
+        .config-form select {
+            padding: 4px 6px;
+            border: 1px solid transparent;
+            border-radius: 2px;
+            font-size: 14px;
+            background-color: transparent;
+            transition: all 0.2s ease;
+            height: 24px;
+            width: 100%;
+        }
+        
+        .config-form input[type="checkbox"] {
+            width: auto;
+            height: auto;
+            transform: scale(1.2);
+            margin: 0;
+        }
+        .config-form input[type="text"]:focus, 
+        .config-form input[type="text"]:hover,
+        .config-form input[type="number"]:focus, 
+        .config-form input[type="number"]:hover,
+        .name-cell input:focus, 
+        .name-cell input:hover {
+            outline: none;
+            border-color: #ced4da;
+            background-color: white;
+            box-shadow: 0 0 0 2px rgba(108,117,125,0.15);
+        }
+        .device-main-row {
+            display: flex;
+            align-items: center;
+            gap: 2px;
+        }
+        .name-cell {
+            white-space: nowrap;
+            display: flex;
+            align-items: center;
+            gap: 2px;
+            padding: 2px 0;
+            justify-content: flex-start; /* Ensure input and button are on the same row */
+            flex-grow: 1;
+        }
+
+        .name-cell input:focus, .name-cell input:hover {
+            outline: none;
+            border-color: #ced4da;
+            background-color: white;
+            box-shadow: 0 0 0 2px rgba(108,117,125,0.15);
+        }
+
+        .mac-display {
+            margin-bottom: 2px;
+            display: block;
+        }
+        
+        .device-name-input {
+            padding: 4px 6px;
+            border: 1px solid transparent;
+            border-radius: 2px;
+            font-size: 14px;
+            background-color: transparent;
+            transition: all 0.2s ease;
+            height: 24px;
+            min-width: 50px;
+        }
+        
+        .device-actions {
+            display: flex;
+            align-items: center;
+            flex-shrink: 0;
+        }
+
+        .icon-btn {
+            width: 28px;
+            height: 28px;
+            border: 1px solid #dee2e6;
+            border-radius: 2px;
+            cursor: pointer;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 14px;
+            transition: all 0.2s ease;
+            /* font-family: inherit; */
+            background-color: #f8f9fa;
+            color: #6c757d;
+            padding: 0;
+            flex-shrink: 0;
+        }
+        .icon-btn:hover {
+            background-color: #e9ecef;
+            transform: translateY(-1px);
+            box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+        }
+        .config-save-btn {
+            background: none;
+            border: none;
+            padding: 0;
+        }
+        .save-btn {
+            color: #495057;
+        }
+        .save-btn:hover {
+            color: #343a40;
+        }
+        .delete-btn {
+            color: #6c757d;
+        }
+        .delete-btn:hover {
+            color: #495057;
+            background-color: #f5f5f5;
+        }
+        .status-cell {
+            text-align: left;
+            width: 30px;
+            padding-left: 5px;
+        }
+        .status-indicator {
+            display: inline-block;
+            width: 10px;
+            height: 10px;
+            border-radius: 50%;
+            vertical-align: middle;
+        }
+        .status-indicator.online { background-color: #28a745; }
+        .status-indicator.offline { background-color: #adb5bd; }
+        .ip-cell, .mac-display {
+            font-family: 'Roboto Mono', monospace;
+            white-space: nowrap;
+            min-width: 160px;
+            max-width: 260px;
+            overflow: hidden;
+            text-overflow: ellipsis;
+            font-size: 16px;
+            color: #1a202c;
+            font-weight: 400;
+            line-height: 1.5;
+            padding: 4px 0;
+            letter-spacing: 0.5px;
+        }
+        
+        @media (max-width: 1200px) {
+            .ip-cell, .mac-display {
+                max-width: 220px;
+                font-size: 15px;
+            }
+        }
+        
+        @media (max-width: 992px) {
+            .ip-cell, .mac-display {
+                max-width: 200px;
+                font-size: 14px;
+            }
+        }
+        .mac-in-ip-cell {
+            padding-top: 3px;
+            font-size: 16px;
+            color: #1a202c;
+            letter-spacing: 0.5px;
+            font-family: 'Roboto Mono', monospace;
+            font-weight: 400;
+            line-height: 1.5;
+        }
+        .mac-cell {
+            font-size: 12px;
+            color: #6c757d;
+            white-space: normal;
+            line-height: 1.2;
+            word-break: break-word;
+            overflow-wrap: break-word;
+        }
+        .manufacturer-cell {
+            padding-top: 2px;
+            color: #6c757d;
+            font-size: 11px;
+            white-space: normal;
+            line-height: 1.3;
+            word-break: break-word;
+            overflow-wrap: break-word;
+        }
+        .mac-in-device-cell {
+            padding-top: 2px;
+            font-size: 11px;
+            color: #868e96;
+            letter-spacing: 0.5px;
+        }
+        .latency-cell {
+            text-align: right;
+            font-weight: 500;
+            color: #1a202c;
+            font-size: 14px;
+            white-space: nowrap;
+            padding-left: 0;
+            padding-right: 15px;
+            font-family: 'Roboto Mono', monospace;
+        }
+        .device-cell {
+            padding-left: 0;
+            max-width: 250px; /* Constrain the width of the device column */
+        }
+        .timestamp-cell {
+            color: #6c757d;
+            font-size: 12px;
+            white-space: nowrap;
+            width: 85px; /* Set a fixed width to reduce space */
+        }
+        .actions-cell {
+            text-align: left;
+            width: 40px;
+        }
+        
+        /* Responsive design */
+        @media (max-width: 1024px) {
+            .config-form {
+                grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+            }
+        }
+        
+        @media (max-width: 768px) {
+            .container {
+                padding: 15px;
+                margin: 10px;
+            }
+            .config-section {
+                padding: 20px;
+            }
+            .config-form {
+                grid-template-columns: 1fr;
+                gap: 12px;
+            }
+            .name-cell input {
+                font-size: 14px;
+                padding: 8px 10px;
+            }
+            table {
+                font-size: 13px;
+            }
+            th, td {
+                padding: 10px 8px;
+            }
+            .ip-cell, .mac-cell {
+                font-size: 11px;
+            }
+            .icon-btn {
+                width: 28px;
+                height: 28px;
+                font-size: 12px;
+            }
+            .timestamp-cell {
+                display: none;
+            }
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>Network Scanner</h1>
+        
+        <!-- [R24.1] Configuration Interface -->
+        <div class="config-section">
+            <div class="config-header" id="configHeader">
+                <h2>Configuration</h2>
+                <span id="configToggleIcon" class="toggle-icon">▶</span>
+            </div>
+            <div id="configContent" class="config-content">
+                <form id="configForm" class="config-form">
+                    <label for="ipRange">IP Range:</label>
+                    <input type="text" id="ipRange" name="ipRange" required>
+    
+                    <label for="timeout">Timeout (ms):</label>
+                    <input type="number" id="timeout" name="timeout" required placeholder="ms">
+    
+                    <label for="period">Period (s):</label>
+                    <input type="number" id="period" name="period" required placeholder="s">
+    
+                    <label for="threads">Threads:</label>
+                    <input type="number" id="threads" name="threads" required>
+    
+                    <label for="pollInterval">Poll Interval (s):</label>
+                    <input type="number" id="pollInterval" name="pollInterval" required placeholder="s">
+
+                    <label for="scannerType">Scanner Type:</label>
+                    <select id="scannerType" name="scannerType" required>
+                        <option value="nmap">nmap</option>
+                        <option value="arp-scan">arp-scan</option>
+                    </select>
+    
+                    <button type="submit" class="icon-btn save-btn" title="Save Configuration" aria-label="Save Configuration">💾</button>
+                </form>
+            </div>
+        </div>
+
+        <!-- [R24] Hosts Table -->
+        <div>
+            <h2>Devices</h2>
+            <table>
+                <thead>
+                    <tr>
+                        <th></th>
+                        <th>IP Address</th>
+                        <th>Device</th>
+                        <th>Latency / Last Seen</th>
+                        <th></th>
+                    </tr>
+                </thead>
+                <tbody id="hostsTable">
+                    <!-- Filled by JavaScript -->
+                </tbody>
+            </table>
+        </div>
+    </div>
+
+    <script src="app.js"></script>
+</body>
+</html>

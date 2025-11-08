@@ -1,0 +1,25 @@
+{
+  "name": "ip_scanner",
+  "version": "1.0.0",
+  "description": "A simple IP scanner",
+  "type": "module",
+  "main": "dist/main.js",
+  "scripts": {
+    "start": "node dist/main.js",
+    "build": "tsx build-esbuild.js",
+    "dev": "NODE_ENV=development tsx src/main.ts",
+    "clean": "rm -rf dist && rm -f src/*.js"
+  },
+  "dependencies": {
+    "cors": "^2.8.5",
+    "express": "^4.21.2",
+    "ts-node": "^10.9.2",
+    "tsx": "^3.12.7",
+    "typescript": "^5.3.3"
+  },
+  "devDependencies": {
+    "@types/express": "^4.17.25",
+    "@types/node": "^20.11.19",
+    "esbuild": "^0.19.2"
+  }
+}

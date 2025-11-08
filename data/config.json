@@ -1,0 +1,8 @@
+{
+  "ip_range": "192.168.1.1-253",
+  "timeout": 1000,
+  "period": 30,
+  "threads": 4,
+  "poll_interval": 30,
+  "scanner_type": "nmap"
+}
