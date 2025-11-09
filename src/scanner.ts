@@ -456,138 +456,6 @@ export class Scanner {
         }
     }
 
-    // Parse nmap output and extract host information
-    private async parseNmapOutput(output: string): Promise<Host[]> {
-        const hosts: Host[] = [];
-        const pendingIPs = new Map<string, any>(); // IP -> host info
-        const macToIPs = new Map<string, string[]>(); // MAC -> array of IPs
-        const lines = output.split('\n');
-        let currentIP: string | null = null;
-        const now = Math.floor(Date.now() / 1000);
-
-        console.log('[R25] Parsing nmap output, total lines:', lines.length);
-
-        for (const line of lines) {
-            if (line.includes('Nmap scan report for')) {
-                // Extract IP and hostname
-                const ipMatch = line.match(/\(([0-9]+\.[0-9]+\.[0-9]+\.[0-9]+)\)/);
-                const hostnameMatch = line.match(/^Nmap scan report for (.*?)(?:\s|\(|$)/);
-                
-                let ip = ipMatch ? ipMatch[1] : '';
-                let hostname = hostnameMatch ? hostnameMatch[1].trim() : '';
-                
-                // If hostname is a valid IP and we don't have an IP yet, use it
-                if (!ip && this.isValidIP(hostname)) {
-                    ip = hostname;
-                    hostname = '';
-                } else if (this.isValidIP(hostname)) {
-                    hostname = ''; // Clean hostname if it's an IP
-                }
-                
-                if (this.isValidIP(ip)) {
-                    currentIP = ip;
-                    pendingIPs.set(ip, {
-                        ip: [ip],
-                        hostname: hostname,
-                        mac: '',  // MAC will be set when found
-                        manufacturer: 'Unknown',
-                        latency: null,
-                        status: 'offline',
-                        lastSeen: now,
-                        name: ''
-                    });
-                    console.log(`[R25] Found device: ${ip} (${hostname || 'no-hostname'})`);
-                }
-            } else if (line.includes('MAC Address:') && currentIP) {
-                // Look for MAC address in different formats (with : or - as separators)
-                const match = line.match(/MAC[\s\w:]+((?:[0-9A-Fa-f]{2}[:\-]){5}[0-9A-Fa-f]{2})(?:\s*\(([^)]+)\))?/i);
-                if (match) {
-                    let mac = match[1].toUpperCase().replace(/-/g, ':');
-                    
-                    if (this.isValidMAC(mac)) {
-                        const normalizedMac = this.normalizeMacAddress(mac);
-                        const manufacturer = match[2]?.trim() || 'Unknown';
-
-                        // Add this IP to the MAC's list of IPs
-                        if (!macToIPs.has(normalizedMac)) {
-                            macToIPs.set(normalizedMac, []);
-                        }
-                        macToIPs.get(normalizedMac)?.push(currentIP);
-
-                        // Store MAC and manufacturer in pending IP info
-                        const pendingInfo = pendingIPs.get(currentIP);
-                        if (pendingInfo) {
-                            pendingInfo.mac = normalizedMac;
-                            pendingInfo.manufacturer = manufacturer;
-                            console.log(`[R25] Found MAC: ${normalizedMac} for IP ${currentIP} (${manufacturer})`);
-                        }
-                    } else {
-                        console.warn(`[R25] Invalid MAC format: ${mac}`);
-                    }
-                }
-            } else if (line.includes('Host is up') || line.includes('Host seems down')) {
-                // For devices without MAC, generate a virtual MAC if needed
-                if (currentIP) {
-                    const pendingInfo = pendingIPs.get(currentIP);
-                    // Skip hosts without MAC - they will be filtered out later
-                    if (pendingInfo && !pendingInfo.mac) {
-                        console.log(`[R25] Host ${currentIP} has no MAC address - will be filtered`);
-                    }
-                }
-                const latencyMatch = line.match(/([0-9.]+)s latency/);
-                if (latencyMatch && currentIP) {
-                    const pendingInfo = pendingIPs.get(currentIP);
-                    if (pendingInfo) {
-                        pendingInfo.latency = parseFloat(latencyMatch[1]) * 1000;
-                    }
-                }
-            }
-        }
-
-        // Process all MACs and their associated IPs
-        for (const [mac, ips] of macToIPs.entries()) {
-            const existingHost = hosts.find(h => h.mac === mac);
-            
-            if (existingHost) {
-                // Update existing host
-                const uniqueIPs = new Set([...existingHost.ip, ...ips]);
-                existingHost.ip = Array.from(uniqueIPs);
-                
-                // Update other fields from the most recent IP's data
-                for (const ip of ips) {
-                    const pendingInfo = pendingIPs.get(ip);
-                    if (pendingInfo && pendingInfo.lastSeen >= existingHost.lastSeen) {
-                        existingHost.hostname = pendingInfo.hostname || existingHost.hostname;
-                        existingHost.lastSeen = pendingInfo.lastSeen;
-                        existingHost.manufacturer = pendingInfo.manufacturer;
-                        if (pendingInfo.latency !== null) {
-                            existingHost.latency = pendingInfo.latency;
-                        }
-                    }
-                }
-                console.log(`[R25] Updated existing host ${mac} with IPs: ${Array.from(uniqueIPs).join(', ')}`);
-            } else {
-                // Create new host with all its IPs
-                const firstIP = ips[0];
-                const pendingInfo = pendingIPs.get(firstIP);
-                if (pendingInfo) {
-                    pendingInfo.ip = ips; // Add all IPs
-                    pendingInfo.status = 'online';
-                    hosts.push(pendingInfo);
-                    console.log(`[R25] Created new host ${mac} with IPs: ${ips.join(', ')}`);
-                }
-            }
-        }
-
-        // [R5] Log scan results
-        console.log(`[R25] Parsing complete. Found ${hosts.length} hosts with MAC addresses`);
-        hosts.forEach(h => {
-            console.log(`[R5] IP ${h.ip.join(', ')}: OK, MAC: ${h.mac}, hostname: ${h.hostname}, manufacturer: ${h.manufacturer}, latency: ${h.latency}s`);
-        });
-        
-        return hosts;
-    }
-
     // [R25] Updates the hosts list with the results of the latest scan
     private async updateHosts(onlineHosts: Host[]): Promise<void> {
         const now = Math.floor(Date.now() / 1000);
@@ -678,6 +546,10 @@ export class Scanner {
                 manufacturer: onlineHost.manufacturer || existingHost.manufacturer || 'Unknown',
                 latency: onlineHost.latency !== undefined ? onlineHost.latency : (existingHost.latency || null)
             };
+
+            // [R5] Devices responding to the scanner tool must be displayed in standard output
+            const { ip, mac, hostname, manufacturer, latency } = this.hosts[normalizedMac];
+            console.log(`IP ${ip.join(', ')}: OK, MAC: ${mac}, hostname: ${hostname || 'N/A'}, manufacturer: ${manufacturer || 'N/A'}, latency: ${latency !== null ? latency.toFixed(2) : 'N/A'} ms`);
             
             if (isNewHost) {
                 console.log(`[R25] New device discovered: ${this.hosts[normalizedMac].name || 'Unnamed'} (${normalizedMac})`);

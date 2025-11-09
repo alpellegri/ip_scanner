@@ -8,7 +8,7 @@
 [R1.0] The system shall be able to use scanner tool: nmap or arp-scan plus nping.
 [R2] The status for each device is one of: Online: responds to the scanner tool in the current scan. Offline: does not respond to the scanner tool. A device found active must remain so until a subsequent scan confirms its absence. Offline devices must not be reported to standard output.
 [R2.1] any request cannot take more that SCAN_TIMEOUT (ms).
-[R5] Devices responding to the scanner tool must be displayed in standard output in the format: IP <IP address>: OK, MAC: <MAC address>, hostname, manufacturer, latency.
+[R5] Devices responding to the scanner tool must be displayed in standard output in the format: IP <IP address>: OK, MAC: <MAC address>, hostname, manufacturer, latency in ms.
 [R16] Support multithreading or multiprocessing to speed up the scan.
 [R14] Configuration via config.json must include: IP range (e.g., string “192.168.1.1-254”), scan SCAN_TIMEOUT (ms), SCAN_PERIOD period (0 for one-shot, ≥30 for periodic), threads/processes, webui poll_interval (min 30s) including the type of scanner tool: nmap or arp-scanner. The system must validate values and support hot-reload upon configuration changes. On dynamic change of SCAN_PERIOD: from 0 to >0: immediately start periodic scans; On dynamic change of SCAN_PERIOD: from >0 to 0: immediately stop the current scan, perform a new one, then go idle.
 [R29] At startup, if SCAN_PERIOD > 0, automatically start periodic scans.

@@ -1,4 +1,25 @@
 // [R28.1] Frontend JavaScript implementation
+
+// Function to show a notification
+function showNotification(message, type = 'info') {
+    const container = document.getElementById('notification-container');
+    if (!container) {
+        console.error('Notification container not found');
+        return;
+    }
+
+    const notification = document.createElement('div');
+    notification.className = `notification ${type}`;
+    notification.textContent = message;
+
+    container.appendChild(notification);
+
+    // Automatically remove the notification after 5 seconds
+    setTimeout(() => {
+        notification.remove();
+    }, 5000);
+}
+
 let config = null;
 let hosts = {}; // [R25] Using an object/map instead of an array
 
@@ -233,9 +254,9 @@ function updateHostsTable() {
         const time = d.toLocaleTimeString();
         const lastSeenHtml = `<div>${date}</div><div>${time}</div>`;
         
-        // Format latency in seconds with 3 decimal places
+        // Format latency in milliseconds with 2 decimal places
         const latencyHtml = (host.latency !== undefined && host.latency !== null && host.latency >= 0) ? 
-            `${(Number(host.latency) / 1000).toFixed(3)} s` : 'N/A';
+            `${(Number(host.latency)).toFixed(2)} ms` : 'N/A';
         
         // Prepare IPs to display
         let displayIps = host.ip && host.ip.length > 0 ? 
@@ -269,7 +290,7 @@ function updateHostsTable() {
         tr.innerHTML = `
             <td class="status-cell"><span class="status-indicator ${host.status ? host.status.toLowerCase() : 'offline'}" title="${host.status || 'offline'}"></span></td>
             <td class="ip-cell">
-                <div>${displayIps}</div>
+                ${displayIps}
             </td>
             <td class="device-cell">
                 <div class="mac-display">${formattedMac}</div>

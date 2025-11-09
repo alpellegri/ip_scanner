@@ -14,6 +14,37 @@
             background-color: #f5f5f5;
             font-size: 13px;
         }
+        #notification-container {
+            position: fixed;
+            top: 20px;
+            right: 20px;
+            z-index: 1000;
+            display: flex;
+            flex-direction: column;
+            gap: 10px;
+        }
+
+        .notification {
+            padding: 15px;
+            border-radius: 4px;
+            color: #fff;
+            font-size: 14px;
+            box-shadow: 0 2px 10px rgba(0,0,0,0.1);
+            opacity: 0.9;
+            transition: opacity 0.3s ease;
+        }
+
+        .notification.success {
+            background-color: #28a745;
+        }
+
+        .notification.error {
+            background-color: #dc3545;
+        }
+
+        .notification.info {
+            background-color: #17a2b8;
+        }
         .container {
             max-width: 1400px;
             margin: 0 auto;
@@ -177,7 +208,7 @@
             padding: 4px 6px;
             border: 1px solid transparent;
             border-radius: 2px;
-            font-size: 14px;
+            font-size: 16px;
             background-color: transparent;
             transition: all 0.2s ease;
             height: 24px;
@@ -358,7 +389,7 @@
             th, td {
                 padding: 10px 8px;
             }
-            .ip-cell, .mac-cell {
+            .ip-cell, .mac-display, .mac-cell {
                 font-size: 11px;
             }
             .icon-btn {
@@ -373,6 +404,7 @@
     </style>
 </head>
 <body>
+    <div id="notification-container"></div>
     <div class="container">
         <h1>Network Scanner</h1>
         
