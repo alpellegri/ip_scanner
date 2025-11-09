@@ -304,6 +304,35 @@ export class Scanner {
         }
     }
 
+    public async reloadHostsFromFile() {
+        try {
+            const hostsData = await fs.readFile(HOSTS_PATH, 'utf-8');
+            const hostsFromFile = JSON.parse(hostsData);
+            
+            this.hosts = {}; // Clear existing hosts
+            Object.entries(hostsFromFile).forEach(([key, host]: [string, any]) => {
+                if (this.isValidMAC(key)) {
+                    const normalizedMac = this.normalizeMacAddress(key);
+                    this.hosts[normalizedMac] = {
+                        ip: Array.isArray(host.ip) ? host.ip : [],
+                        hostname: host.hostname || '',
+                        mac: normalizedMac,
+                        name: host.name || '',
+                        status: host.status || 'offline',
+                        lastSeen: host.lastSeen || 0,
+                        manufacturer: host.manufacturer || 'Unknown',
+                        latency: host.latency || null
+                    };
+                }
+            });
+            console.log('Scanner hosts reloaded from file.');
+        } catch (error) {
+            if (error.code !== 'ENOENT') {
+                console.error("Error reloading hosts.json for scanner:", error);
+            }
+        }
+    }
+
     // [R14] Configuration update with dynamic behavior
     public updateConfig(newConfig: Config) {
         const oldPeriod = this.config.period;

@@ -179,6 +179,9 @@ app.patch('/api/v1/hosts', async (req, res) => {
             // Aggiorna anche la variabile in memoria
             hosts = hostsData;
 
+            // Ricarica la configurazione degli host nello scanner per riflettere le modifiche
+            await scanner.reloadHostsFromFile();
+
             // console.log(`Host with ID ${hostToUpdate} updated successfully`);
             return res.json({ success: true });
         } else {
