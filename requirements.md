@@ -76,12 +76,13 @@ The backend manages reading and writing of the configuration: config.json file.
 
 5. Error handling requirements
 [R34] Non-critical network errors (e.g., timeouts, disconnections) must not interrupt scanning. If the hosts.json file is corrupted, the server must create a new empty one and continue execution.
-[R35] At startup, the server must verify the availability of necessary privileges (e.g., root permissions). In case of insufficient permissions or critical errors, it must notify the user (console or UI) and terminate execution without automatic recovery attempts.
+[R35] At startup, the server must verify the availability of necessary privileges (e.g., root permissions). In case of insufficient permissions or critical errors, it must notify the user (console or UI) and terminate execution without automatic recovery attempts. The application will terminate if not run with root privileges.
 
 6. Build requirements
 [R36] Build must not produce warnings.
 [R37] The tree must be organized to separate program files from data.
 [R38] Program files must be stored in the src folder. config.json and hosts.json must be stored in the data folder.
+[R38.1] Frontend files must be stored in the static folder.
 [R39] Folders src and data must be at the same level.
 
 7. Docker requirements
