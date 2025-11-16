@@ -73,6 +73,10 @@ class NmapScanner implements BaseScanner {
 
                 if (hostMatch) {
                     if (currentHost) {
+                        // Fallback latency to 0 if not set
+                        if (currentHost.latency === null || currentHost.latency === undefined) {
+                            currentHost.latency = 0;
+                        }
                         hosts.push(currentHost);
                     }
 
@@ -98,6 +102,10 @@ class NmapScanner implements BaseScanner {
             }
 
             if (currentHost) {
+                // Fallback latency to 0 if not set
+                if (currentHost.latency === null || currentHost.latency === undefined) {
+                    currentHost.latency = 0;
+                }
                 hosts.push(currentHost);
             }
 
@@ -232,11 +240,20 @@ class ArpScanner implements BaseScanner {
                 });
             });
 
-            const match = stdout.match(/Avg rtt:\s+([0-9.]+)/);
-            return match ? parseFloat(match[1]) : null;
+            // Parse nping output for latency
+            // Example line: "Avg rtt: 12.345ms"
+            const avgRttMatch = stdout.match(/Avg rtt:\s*([\d\.]+)ms/i);
+            if (avgRttMatch) {
+                const latency = parseFloat(avgRttMatch[1]);
+                if (!isNaN(latency)) {
+                    return latency;
+                }
+            }
 
+            console.warn(`Latency not found in nping output for IP ${ip}`);
+            return null;
         } catch (error) {
-            console.error('Error executing nping command:', error);
+            console.error(`Error measuring latency for IP ${ip}:`, error);
             return null;
         }
     }
@@ -326,7 +343,7 @@ export class Scanner {
                 }
             });
             console.log('Scanner hosts reloaded from file.');
-        } catch (error) {
+        } catch (error: any) {
             if (error.code !== 'ENOENT') {
                 console.error("Error reloading hosts.json for scanner:", error);
             }
@@ -459,151 +476,89 @@ export class Scanner {
     // [R25] Updates the hosts list with the results of the latest scan
     private async updateHosts(onlineHosts: Host[]): Promise<void> {
         const now = Math.floor(Date.now() / 1000);
-        const onlineKeys = new Set<string>();
 
-        console.log(`[R25] Updating hosts with ${onlineHosts.length} online hosts`);
-
-        // First pass: update existing hosts and normalize MAC addresses
-        for (const [key, existingHost] of Object.entries(this.hosts)) {
-            if (this.isValidMAC(existingHost.mac)) {
-                const normalizedMac = this.normalizeMacAddress(existingHost.mac);
-                if (!this.isValidMAC(normalizedMac)) {
-                    console.log(`[R25] Invalid normalized MAC ${normalizedMac} from ${existingHost.mac} - removing host`);
-                    delete this.hosts[key];
-                } else if (key !== normalizedMac) {
-                    this.hosts[normalizedMac] = { ...existingHost };
-                    delete this.hosts[key];
-                    console.log(`[R25] Normalized MAC key from ${key} to ${normalizedMac}`);
-                }
-            } else {
-                // Skip hosts without valid MAC per R25
-                if (existingHost.ip && existingHost.ip.length > 0) {
-                    console.log(`[R25] Removing host without MAC: ${existingHost.ip[0]}`);
-                    delete this.hosts[key];
-                } else {
-                    console.log(`[R25] Removing entry without valid MAC or IP: ${key}`);
-                    delete this.hosts[key];
-                }
-            }
-        }
-
-        // Mark all hosts offline first
-        for (const host of Object.values(this.hosts)) {
-            host.status = 'offline';
-        }
-
-        // Second pass: update online hosts and add new ones
+        // Step 1: Group online hosts by MAC address and collect their IPs from this scan
+        const onlineMacs = new Map<string, { ips: string[], hostData: Host }>();
         for (const onlineHost of onlineHosts) {
-            // Skip hosts without physical MAC per R25
             if (!onlineHost.mac || !this.isValidMAC(onlineHost.mac)) {
-                const firstIP = Array.isArray(onlineHost.ip) ? onlineHost.ip[0] : onlineHost.ip;
-                if (firstIP) {
-                    console.log(`[R25] Skipping host without valid MAC: ${firstIP} (MAC: ${onlineHost.mac || 'none'})`);
-                } else {
-                    console.warn('[R25] Skipping host without valid IP:', onlineHost);
-                }
                 continue;
             }
-
             const normalizedMac = this.normalizeMacAddress(onlineHost.mac);
             if (!normalizedMac) {
-                console.warn('[R25] Failed to normalize MAC:', onlineHost.mac);
                 continue;
             }
 
-            if (!this.isValidMAC(normalizedMac)) {
-                console.warn('[R25] Invalid normalized MAC:', normalizedMac, 'from', onlineHost.mac);
-                continue;
-            }
-
-            // Debugging log
-            console.log(`[R25] Processing online host with MAC: ${normalizedMac}`);
-
-            // Mark this host as online using MAC as key
-            onlineKeys.add(normalizedMac);
-
-            const existingHost = this.hosts[normalizedMac] || {};
-            const isNewHost = !this.hosts[normalizedMac];
-
-            // Update host information
-            this.hosts[normalizedMac] = {
-                ...existingHost,
-                ip: (() => {
-                    const existingIps = Array.isArray(existingHost.ip) ? existingHost.ip : [];
-                    const newIps = Array.isArray(onlineHost.ip) 
-                        ? onlineHost.ip.filter(ip => this.isValidIP(ip))
-                        : [onlineHost.ip].filter(ip => this.isValidIP(ip));
-                    return [...new Set([...existingIps, ...newIps])];
-                })(),
-                hostname: onlineHost.hostname || existingHost.hostname || '',
-                mac: normalizedMac,
-                name: existingHost.name || 
-                    (onlineHost.hostname && !this.isValidIP(onlineHost.hostname) 
-                        ? onlineHost.hostname 
-                        : ''),
-                status: 'online',  // Set status to online for found hosts
-                lastSeen: now,
-                manufacturer: onlineHost.manufacturer || existingHost.manufacturer || 'Unknown',
-                latency: onlineHost.latency !== undefined ? onlineHost.latency : (existingHost.latency || null)
-            };
-
-            // [R5] Devices responding to the scanner tool must be displayed in standard output
-            const { ip, mac, hostname, manufacturer, latency } = this.hosts[normalizedMac];
-            console.log(`IP ${ip.join(', ')}: OK, MAC: ${mac}, hostname: ${hostname || 'N/A'}, manufacturer: ${manufacturer || 'N/A'}, latency: ${latency !== null ? latency.toFixed(2) : 'N/A'} ms`);
+            const newIps = (Array.isArray(onlineHost.ip) ? onlineHost.ip : [onlineHost.ip]).filter(ip => this.isValidIP(ip));
             
-            if (isNewHost) {
-                console.log(`[R25] New device discovered: ${this.hosts[normalizedMac].name || 'Unnamed'} (${normalizedMac})`);
-            } else {
-                console.log(`[R25] Updated existing host: ${this.hosts[normalizedMac].name || 'Unnamed'} (${normalizedMac})`);
+            if (!onlineMacs.has(normalizedMac)) {
+                onlineMacs.set(normalizedMac, { ips: [], hostData: onlineHost });
+            }
+            
+            const entry = onlineMacs.get(normalizedMac)!;
+            entry.ips.push(...newIps);
+            // Update hostData with potentially more complete info (e.g., latency)
+            entry.hostData = { ...entry.hostData, ...onlineHost };
+        }
+
+        // Create a map of online IPs to their MAC addresses
+        const onlineIpToMac = new Map<string, string>();
+        for (const [mac, scanData] of onlineMacs.entries()) {
+            for (const ip of scanData.ips) {
+                onlineIpToMac.set(ip, mac);
             }
         }
 
-        // Debug log of online keys
-        console.log(`[R25] Online keys after scan:`, Array.from(onlineKeys));
-
-        // Update offline status for hosts not seen in this scan
-        const onlineKeysArray = Array.from(onlineKeys);
-        console.log(`[R25] Found ${onlineKeysArray.length} online hosts:`, onlineKeysArray);
-        
+        // Step 2: Mark all hosts as offline and find stale entries
+        const staleMacs: string[] = [];
         for (const [mac, host] of Object.entries(this.hosts)) {
-            const normalizedMac = this.normalizeMacAddress(mac);
-            if (!normalizedMac) {
-                console.log(`[R25] Removing host with invalid MAC: ${mac}`);
-                delete this.hosts[mac];
-                continue;
-            }
+            host.status = 'offline';
 
-            // [R25] A device becomes offline if it does not respond to the scanner tool
-            if (!onlineKeys.has(normalizedMac)) {
-                console.log(`[R25] Host ${host.name || normalizedMac} (${normalizedMac}) did not respond - marking offline`);
-                this.hosts[normalizedMac] = {
-                    ...host,
-                    status: 'offline'  // Status is set directly, no timestamp check
-                };
-                
-                // If this was a renormalization, clean up old key
-                if (mac !== normalizedMac) {
-                    delete this.hosts[mac];
-                }
-            } else {
-                // [R25] A device is updated as online only if it responds to the scanner tool
-                console.log(`[R25] Host ${host.name || normalizedMac} (${normalizedMac}) responded to scan - marking online`);
-                if (mac !== normalizedMac) {
-                    this.hosts[normalizedMac] = {
-                        ...host,
-                        mac: normalizedMac,
-                        status: 'online',  // Status is set directly based on scanner response
-                        lastSeen: now
-                    };
-                    delete this.hosts[mac];
-                } else {
-                    host.status = 'online';  // Status is set directly based on scanner response
-                    host.lastSeen = now;
-                }
+            const isStale = host.ip.some(ip => {
+                const onlineMacForIp = onlineIpToMac.get(ip);
+                // Stale if the IP is online with a *different* MAC
+                return onlineMacForIp && onlineMacForIp !== mac;
+            });
+
+            if (isStale) {
+                staleMacs.push(mac);
             }
         }
 
-        // Save updated hosts to file
+        // Remove stale entries
+        for (const mac of staleMacs) {
+            console.log(`[INFO] Removing stale host entry ${mac} because its IP is now used by another active host.`);
+            delete this.hosts[mac];
+        }
+
+        // Step 3: Iterate through the online MACs and update the main hosts list.
+        for (const [mac, scanData] of onlineMacs.entries()) {
+            const existingHost = this.hosts[mac];
+            const uniqueIps = [...new Set(scanData.ips)];
+
+            if (existingHost) {
+                // Update existing host
+                existingHost.ip = uniqueIps; // Replace IPs with the ones from the current scan
+                existingHost.status = 'online';
+                existingHost.lastSeen = now;
+                existingHost.hostname = scanData.hostData.hostname || existingHost.hostname;
+                existingHost.manufacturer = scanData.hostData.manufacturer || existingHost.manufacturer;
+                existingHost.latency = scanData.hostData.latency !== undefined ? scanData.hostData.latency : existingHost.latency;
+            } else {
+                // Add new host
+                this.hosts[mac] = {
+                    ...scanData.hostData,
+                    ip: uniqueIps,
+                    mac: mac,
+                    status: 'online',
+                    lastSeen: now,
+                    name: scanData.hostData.hostname && !this.isValidIP(scanData.hostData.hostname) ? scanData.hostData.hostname : '',
+                };
+            }
+
+            // Log to standard output as per R5
+            const updatedHost = this.hosts[mac];
+            console.log(`IP ${updatedHost.ip.join(', ')}: OK, MAC: ${mac}, hostname: ${updatedHost.hostname || 'N/A'}, manufacturer: ${updatedHost.manufacturer || 'N/A'}, latency: ${updatedHost.latency !== null ? updatedHost.latency.toFixed(2) : 'N/A'} ms`);
+        }
     }
 
     // Make saveToFile public

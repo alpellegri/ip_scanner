@@ -90,6 +90,7 @@ async function loadHosts() {
             throw new Error(`HTTP error! status: ${response.status}`);
         }
         const responseData = await response.json();
+        console.log('Fetched hosts data:', responseData); // Diagnostic log
         
         // Convert the response to an array of hosts
         let hostsArray = [];
@@ -162,7 +163,6 @@ function updateConfigForm() {
 // [R24, R26, R24.0] Update hosts table
 function updateHostsTable() {
     console.log('Updating hosts table with', Object.keys(hosts).length, 'hosts');
-    console.log('Hosts data:', JSON.stringify(hosts, null, 2));
     const tbody = document.getElementById('hostsTable');
     if (!tbody) {
         console.error('Hosts table element not found');
@@ -254,9 +254,9 @@ function updateHostsTable() {
         const time = d.toLocaleTimeString();
         const lastSeenHtml = `<div>${date}</div><div>${time}</div>`;
         
-        // Format latency in milliseconds with 2 decimal places
-        const latencyHtml = (host.latency !== undefined && host.latency !== null && host.latency >= 0) ? 
-            `${(Number(host.latency)).toFixed(2)} ms` : 'N/A';
+        // Format latency in milliseconds with 2 decimal places, show 'N/A' if latency is 0 or invalid
+        const latencyValue = Number(host.latency);
+        const latencyHtml = (latencyValue > 0) ? `${latencyValue.toFixed(2)} ms` : 'N/A';
         
         // Prepare IPs to display
         let displayIps = host.ip && host.ip.length > 0 ? 
