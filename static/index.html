@@ -414,6 +414,15 @@
         <h1>Network Scanner</h1>
         
         <!-- [R24.1] Configuration Interface -->
+        <div class="status-section">
+            <h2>Server Status</h2>
+            <p><strong>Status:</strong> <span id="server-status">N/A</span></p>
+            <p><strong>Last Scan:</strong> <span id="last-scan">N/A</span></p>
+            <p><strong>Scan Status:</strong> <span id="scan-status">N/A</span></p>
+            <button id="manual-scan-btn" class="icon-btn" title="Manual Scan" aria-label="Manual Scan">🔄</button>
+        </div>
+
+        <!-- [R24.1] An interface must be provided to modify the configuration. -->
         <div class="config-section">
             <div class="config-header" id="configHeader">
                 <h2>Configuration</h2>

@@ -10,6 +10,7 @@ import { Scanner } from './scanner.js';
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
 
+// [R25] hosts.json must contain, for each device that responded to the scanner tool: IP, MAC, hostname (if available), manufacturer (if available), assigned name (if available), and timestamp of last scan.
 interface Host {
     ip: string[];
     hostname: string;
@@ -43,11 +44,13 @@ let config: any;
 let hosts: any = {};
 let scanner: Scanner;
 
+// [R30] A REST API must be implemented with the following main endpoints
 // [R30] /api/v1/config (GET to read, PUT to update configuration)
 app.get('/api/v1/config', (req, res) => {
     res.json(config);
 });
 
+// [R14] Configuration via config.json must include support hot-reload upon configuration changes.
 app.put('/api/v1/config', async (req, res) => {
     try {
         config = req.body;
@@ -63,7 +66,8 @@ app.put('/api/v1/config', async (req, res) => {
 // [R30] /api/v1/hosts (GET full list, PATCH for partial updates, DELETE to remove devices)
 app.get('/api/v1/hosts', async (req, res) => {
     try {
-        // [R2, R13] Leggi direttamente dal file e calcola status e latency
+        // [R24] The Web UI must display the device table stored in hosts.json (online and offline). Data is updated via polling on the /api/v1/hosts endpoint, with interval set by poll_interval.
+        // [R26] The Web UI must clearly indicate the online/offline status of each device.
         const data = await fs.readFile(HOSTS_PATH, 'utf-8');
         const fileHosts = JSON.parse(data);
         
@@ -74,6 +78,7 @@ app.get('/api/v1/hosts', async (req, res) => {
         
         for (const [mac, host] of Object.entries(fileHosts)) {
             const h = host as Host;
+            // [R2] The status for each device is one of: Online: responds to the scanner tool in the current scan. Offline: does not respond to the scanner tool. A device found active must remain so until a subsequent scan confirms its absence. Offline devices must not be reported to standard output.
             // [R25] Device status is determined solely by scanner response
             // A device is updated as online only if it responds to the scanner tool
             // An existing device becomes offline if it does not respond to the scanner tool
@@ -84,7 +89,7 @@ app.get('/api/v1/hosts', async (req, res) => {
                 name: h.name || '',
                 last_seen: h.last_seen || 0,
                 status: h.status || 'offline',  // Use status directly from scanner
-                // [R13] latency è incluso se disponibile nel file
+                // [R13] For each device in the hosts table: if a device is active, the Web UI must show the last latency; if a device is not active, the Web UI must show the timestamp of the last scan when it was active.
                 ...(h.latency !== undefined && { latency: h.latency })
             };
         }
@@ -96,7 +101,7 @@ app.get('/api/v1/hosts', async (req, res) => {
     }
 });
 
-// Handle DELETE host requests
+// [R24.2] An interface must be provided to remove devices from hosts.json.
 const deleteHostHandler = async (req: any, res: any) => {
     console.log('Received DELETE /api/v1/hosts request with body:', req.body);
     try {
@@ -153,6 +158,7 @@ app.post('/api/v1/hosts', (req, res, next) => {
     next();
 });
 
+// [R28] The Web UI must allow assigning custom names to devices. A Save button must be used to store the device name.
 app.patch('/api/v1/hosts', async (req, res) => {
     try {
         const { id, name } = req.body;
@@ -198,14 +204,32 @@ app.patch('/api/v1/hosts', async (req, res) => {
 app.get('/api/v1/status', (req, res) => {
     res.json({
         server_status: 'running',
-        last_scan: scanner.getLastScanTime()
+        last_scan: scanner.getLastScanTime(),
+        is_scanning: scanner.isScanning()
     });
+});
+
+app.post('/api/v1/scan', async (req, res) => {
+    try {
+        await scanner.scan();
+        res.json({ success: true });
+    } catch (error) {
+        res.status(500).send('Error starting manual scan');
+    }
 });
 
 app.get('/', (req, res) => {
     res.sendFile('index.html', { root: 'static' });
 });
 
+
+// [R37] The tree must be organized to separate program files from data.
+// [R38] Program files must be stored in the src folder. config.json and hosts.json must be stored in the data folder.
+// [R39] Folders src and data must be at the same level.
+// Helper function to check if a variable is an object
+function isObject(value: any): value is object {
+    return value !== null && typeof value === 'object' && !Array.isArray(value);
+}
 
 async function main() {
     // [R34] If the hosts.json file is corrupted, the server must create a new empty one and continue execution.
@@ -214,6 +238,7 @@ async function main() {
         config = JSON.parse(configData);
     } catch (error) {
         console.error("Error reading config.json, using default values", error);
+        // [R14] Configuration via config.json must include: IP range (e.g., string “192.168.1.1-254”), scan SCAN_TIMEOUT (ms), SCAN_PERIOD period (0 for one-shot, ≥30 for periodic), threads/processes, webui poll_interval (min 30s) including the type of scanner tool: nmap or arp-scanner. The system must validate values and support hot-reload upon configuration changes. On dynamic change of SCAN_PERIOD: from 0 to >0: immediately start periodic scans; On dynamic change of SCAN_PERIOD: from >0 to 0: immediately stop the current scan, perform a new one, then go idle.
         config = {
             "ip_range": "192.168.1.1-254",
             "timeout": 1000,
@@ -226,14 +251,23 @@ async function main() {
 
     try {
         const hostsData = await fs.readFile(HOSTS_PATH, 'utf-8');
-        hosts = JSON.parse(hostsData);
+        const parsedHosts = JSON.parse(hostsData);
+
+        // [R34] Validate that hosts.json is a valid object
+        if (isObject(parsedHosts)) {
+            hosts = parsedHosts;
+        } else {
+            console.error("Error: hosts.json is not a valid object. Creating a new one.");
+            hosts = {};
+            await fs.writeFile(HOSTS_PATH, JSON.stringify(hosts, null, 2));
+        }
     } catch (error) {
         console.error("Error reading hosts.json, creating a new one.", error);
         hosts = {};
         await fs.writeFile(HOSTS_PATH, JSON.stringify(hosts, null, 2));
     }
     
-    // [R35] At startup, the server must verify the availability of necessary privileges
+    // [R35] At startup, the server must verify the availability of necessary privileges (e.g., root permissions). In case of insufficient permissions or critical errors, it must notify the user (console or UI) and terminate execution without automatic recovery attempts.
     if (process.getuid && process.getuid() !== 0) {
         console.error("Error: root privileges are required to run nmap scans.");
         console.error("Please restart the application with sudo.");

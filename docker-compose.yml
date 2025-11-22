@@ -1,13 +1,18 @@
 version: '3.8'
 services:
   ip_scanner:
-    build: .
+    build:
+      context: .
+      dockerfile: Dockerfile
     container_name: ip_scanner
-    network_mode: host
+    network_mode: "host"
+    privileged: true
     cap_add:
+      - NET_ADMIN
       - NET_RAW
     volumes:
       - ./data:/app/data
+      - ./src:/app/src
     ports:
       - "4000:4000"
     restart: unless-stopped

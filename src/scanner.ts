@@ -117,9 +117,11 @@ class NmapScanner implements BaseScanner {
     }
 }
 
+// [R1.0] The system shall be able to use scanner tool: nmap or arp-scan plus nping.
 // Arp scanner implementation
 class ArpScanner implements BaseScanner {
     private convertIPRange(ipRange: string): string | null {
+        // [R1] The system must scan a local IP range, configurable as a single IP (e.g., 192.168.1.11) or a range (e.g., 192.168.1.1-254). Multiple ranges or CIDR notation are not supported.
         // Handle CIDR notation (e.g., 192.168.1.0/24)
         if (ipRange.includes('/')) {
             return ipRange;
@@ -259,7 +261,7 @@ class ArpScanner implements BaseScanner {
     }
 }
 
-// [R14] Configuration interface
+// [R14] Configuration via config.json must include: IP range (e.g., string “192.168.1.1-254”), scan SCAN_TIMEOUT (ms), SCAN_PERIOD period (0 for one-shot, ≥30 for periodic), threads/processes, webui poll_interval (min 30s) including the type of scanner tool: nmap or arp-scanner. The system must validate values and support hot-reload upon configuration changes. On dynamic change of SCAN_PERIOD: from 0 to >0: immediately start periodic scans; On dynamic change of SCAN_PERIOD: from >0 to 0: immediately stop the current scan, perform a new one, then go idle.
 export interface Config {
     ip_range: string;      // Single IP or range (e.g., 192.168.1.1-254)
     timeout: number;       // SCAN_TIMEOUT in milliseconds
@@ -295,7 +297,7 @@ export class Scanner {
                         mac: normalizedMac,
                         name: host.name || '',
                         status: host.status || 'offline',
-                        lastSeen: host.lastSeen || 0,
+                        lastSeen: host.last_seen || 0,
                         manufacturer: host.manufacturer || 'Unknown',
                         latency: host.latency || null
                     };
@@ -312,7 +314,7 @@ export class Scanner {
                         mac: normalizedMac,
                         name: host.name || '',
                         status: host.status || 'offline',
-                        lastSeen: host.lastSeen || 0,
+                        lastSeen: host.last_seen || 0,
                         manufacturer: host.manufacturer || 'Unknown',
                         latency: host.latency || null
                     };
@@ -336,7 +338,7 @@ export class Scanner {
                         mac: normalizedMac,
                         name: host.name || '',
                         status: host.status || 'offline',
-                        lastSeen: host.lastSeen || 0,
+                        lastSeen: host.last_seen || 0,
                         manufacturer: host.manufacturer || 'Unknown',
                         latency: host.latency || null
                     };
@@ -355,11 +357,12 @@ export class Scanner {
         const oldPeriod = this.config.period;
         this.config = newConfig;
 
-        // Handle dynamic SCAN_PERIOD changes
+        // [R14] On dynamic change of SCAN_PERIOD: from >0 to 0: immediately stop the current scan, perform a new one, then go idle.
         if (oldPeriod > 0 && newConfig.period === 0) {
             // From periodic to one-shot
             this.stop();
             this.scan(); // Immediate one-shot scan
+        // [R14] On dynamic change of SCAN_PERIOD: from 0 to >0: immediately start periodic scans
         } else if (oldPeriod === 0 && newConfig.period > 0) {
             // From one-shot to periodic
             this.start();
@@ -405,7 +408,7 @@ export class Scanner {
         return this.scanning;
     }
 
-    // Validate MAC address format (both physical and virtual)
+    // [R25] it is a map with mac as key.
     private isValidMAC(mac: string | null | undefined): boolean {
         if (!mac) return false;
         
@@ -414,7 +417,7 @@ export class Scanner {
         return cleanMac.length === 12;
     }
 
-    // [R25] Normalize MAC address to XX:XX:XX:XX:XX:XX format - only physical MACs
+    // [R25] hosts.json must contain, for each device that responded to the scanner tool: IP, MAC, hostname (if available), manufacturer (if available), assigned name (if available), and timestamp of last scan.
     private normalizeMacAddress(mac: string | null | undefined): string {
         if (!mac) return '';
         
@@ -446,13 +449,14 @@ export class Scanner {
         });
     }
 
-    // [R1.0] Scan IP range with selected scanner
+    // [R1.0] The system shall be able to use scanner tool: nmap or arp-scan plus nping.
     public async scan(): Promise<void> {
         if (this.scanning) {
             console.log('Scan already in progress, skipping');
             return;
         }
 
+        // [R2.1] any request cannot take more that SCAN_TIMEOUT (ms).
         this.scanning = true;
         this.lastScanTime = Date.now();
         console.log(`Scanning IP range: ${this.config.ip_range} using ${this.config.scanner_type} scanner`);
@@ -555,7 +559,7 @@ export class Scanner {
                 };
             }
 
-            // Log to standard output as per R5
+            // [R5] Devices responding to the scanner tool must be displayed in standard output in the format: IP <IP address>: OK, MAC: <MAC address>, hostname, manufacturer, latency in ms.
             const updatedHost = this.hosts[mac];
             console.log(`IP ${updatedHost.ip.join(', ')}: OK, MAC: ${mac}, hostname: ${updatedHost.hostname || 'N/A'}, manufacturer: ${updatedHost.manufacturer || 'N/A'}, latency: ${updatedHost.latency !== null ? updatedHost.latency.toFixed(2) : 'N/A'} ms`);
         }
@@ -586,13 +590,13 @@ export class Scanner {
                 continue;
             }
             
-            // [R25] Save only required fields in the correct format
+            // [R25] hosts.json must contain, for each device that responded to the scanner tool: IP, MAC, hostname (if available), manufacturer (if available), assigned name (if available), and timestamp of last scan.
             dataToSave[mac] = {
                 ip: validIps,
                 hostname: host.hostname || '',
                 manufacturer: host.manufacturer || (mac.startsWith('IP-') ? 'Unknown (No MAC)' : 'Unknown'),
                 name: host.name || '',
-                lastSeen: host.lastSeen || Math.floor(Date.now() / 1000),
+                last_seen: host.lastSeen || Math.floor(Date.now() / 1000),
                 latency: host.latency !== undefined ? host.latency : null,
                 status: host.status || 'offline'
             };
@@ -603,7 +607,7 @@ export class Scanner {
             await fs.writeFile(HOSTS_PATH, JSON.stringify(dataToSave, null, 2));
             console.log(`[R25] Updated hosts.json with ${Object.keys(dataToSave).length} devices`);
         } catch (error) {
-            // [R34] Handle file system errors gracefully
+            // [R34] Non-critical network errors (e.g., timeouts, disconnections) must not interrupt scanning. If the hosts.json file is corrupted, the server must create a new empty one and continue execution.
             console.error('[R25] Error saving hosts file:', error);
             // Don't throw the error to maintain scanning operation
             console.error('[R34] Continuing operation despite file save error');
