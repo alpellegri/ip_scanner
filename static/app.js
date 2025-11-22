@@ -1,4 +1,4 @@
-// [R28.1] Frontend JavaScript implementation
+// [R28.1] The Web UI must be implemented in two distinct files: index.html and app.js.
 
 // Function to show a notification
 function showNotification(message, type = 'info') {
@@ -77,6 +77,7 @@ async function saveConfig() {
 async function init() {
     await loadConfig();
     await loadHosts();
+    await updateStatus();
     setupEventListeners();
     startPolling();
 }
@@ -160,7 +161,9 @@ function updateConfigForm() {
     document.getElementById('scannerType').value = config.scanner_type || 'nmap';
 }
 
-// [R24, R26, R24.0] Update hosts table
+// [R24] The Web UI must display the device table stored in hosts.json (online and offline).
+// [R24.0] The Web UI must display first online devices ordered by ip, then offline devices ordered by last_seen.
+// [R26] The Web UI must clearly indicate the online/offline status of each device.
 function updateHostsTable() {
     console.log('Updating hosts table with', Object.keys(hosts).length, 'hosts');
     const tbody = document.getElementById('hostsTable');
@@ -329,7 +332,7 @@ function updateHostsTable() {
     });
 }
 
-// [R24.2] Delete host - Unified function
+// [R24.2] An interface must be provided to remove devices from hosts.json.
 async function deleteHost(id) {
 if (!id) {
     console.error('Unable to delete: Invalid ID');
@@ -381,7 +384,7 @@ try {
     }
 }
 
-// Function to save a custom host name
+// [R28] The Web UI must allow assigning custom names to devices. A Save button must be used to store the device name.
 async function saveHostName(id) {
     console.log('Starting save - ID:', id);
     
@@ -448,13 +451,45 @@ function setupEventListeners() {
         configContent.classList.toggle('collapsed');
         configToggleIcon.style.transform = configContent.classList.contains('collapsed') ? 'rotate(0deg)' : 'rotate(90deg)';
     });
+
+    document.getElementById('manual-scan-btn').addEventListener('click', async () => {
+        await manualScan();
+    });
 }
 
 // [R24] Start polling for updates
 function startPolling() {
     setInterval(async () => {
         await loadHosts();
+        await updateStatus();
     }, (config?.poll_interval || 30) * 1000);
+}
+
+async function updateStatus() {
+    try {
+        const response = await fetch('/api/v1/status');
+        const status = await response.json();
+        document.getElementById('server-status').textContent = status.server_status;
+        document.getElementById('last-scan').textContent = new Date(status.last_scan).toLocaleString();
+        document.getElementById('scan-status').textContent = status.is_scanning ? 'Scanning...' : 'Idle';
+    } catch (error) {
+        console.error('Error updating status:', error);
+    }
+}
+
+async function manualScan() {
+    try {
+        const response = await fetch('/api/v1/scan', {
+            method: 'POST'
+        });
+        if (response.ok) {
+            showNotification('Manual scan started', 'info');
+        } else {
+            showNotification('Failed to start manual scan', 'error');
+        }
+    } catch (error) {
+        console.error('Error starting manual scan:', error);
+    }
 }
 
 // Initialize the application when the page loads
