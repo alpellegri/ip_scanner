@@ -5,6 +5,7 @@ import express from 'express';
 import * as fs from 'fs/promises';
 import { fileURLToPath } from 'url';
 import { dirname, join } from 'path';
+import * as path from 'path';
 import { Scanner } from './scanner.js';
 
 const __filename = fileURLToPath(import.meta.url);
@@ -203,7 +204,7 @@ app.get('/api/v1/status', (req, res) => {
 });
 
 app.get('/', (req, res) => {
-    res.sendFile('index.html', { root: 'static' });
+    res.sendFile('index.html', { root: path.join(__dirname, '../static') });
 });
 
 
@@ -237,7 +238,7 @@ async function main() {
     if (process.getuid && process.getuid() !== 0) {
         console.error("Error: root privileges are required to run nmap scans.");
         console.error("Please restart the application with sudo.");
-        // process.exit(1); // This would terminate the server
+        process.exit(1); // This would terminate the server
     }
 
 
