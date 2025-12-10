@@ -6,7 +6,7 @@ import * as fs from 'fs/promises';
 import { fileURLToPath } from 'url';
 import { dirname, join } from 'path';
 import * as path from 'path';
-import { Scanner } from './scanner.js';
+import { Scanner, Config } from './scanner.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
@@ -40,6 +40,58 @@ app.use((req, res, next) => {
 const CONFIG_PATH = './data/config.json';
 const HOSTS_PATH = './data/hosts.json';
 
+function isValidIP(ip: string): boolean {
+    const parts = ip.split('.');
+    if (parts.length !== 4) return false;
+    return parts.every(part => {
+        const num = Number(part);
+        return Number.isInteger(num) && num >= 0 && num <= 255;
+    });
+}
+
+function isValidRange(ipRange: string): boolean {
+    if (isValidIP(ipRange)) return true;
+    const m = ipRange.match(/^(\d+\.\d+\.\d+\.)(\d+)-(\d+)$/);
+    if (!m) return false;
+    const [, , start, end] = m;
+    const s = Number(start);
+    const e = Number(end);
+    if (!Number.isInteger(s) || !Number.isInteger(e)) return false;
+    if (s < 0 || e < 0 || s > 254 || e > 255 || s > e) return false;
+    return true;
+}
+
+function validateConfig(payload: any, current?: Config): Config {
+    const cfg: Config = {
+        ip_range: payload?.ip_range ?? current?.ip_range ?? '192.168.1.1-254',
+        timeout: Number(payload?.timeout ?? current?.timeout ?? 1000),
+        period: Number(payload?.period ?? current?.period ?? 0),
+        threads: Number(payload?.threads ?? current?.threads ?? 4),
+        poll_interval: Number(payload?.poll_interval ?? current?.poll_interval ?? 30),
+        scanner_type: (payload?.scanner_type ?? current?.scanner_type ?? 'nmap') as Config['scanner_type']
+    };
+
+    if (!isValidRange(cfg.ip_range)) {
+        throw new Error('ip_range must be a single IPv4 or range like 192.168.1.1-254');
+    }
+    if (!Number.isInteger(cfg.timeout) || cfg.timeout <= 0) {
+        throw new Error('timeout must be a positive integer (ms)');
+    }
+    if (!(cfg.period === 0 || cfg.period >= 30)) {
+        throw new Error('period must be 0 or >= 30 seconds');
+    }
+    if (!Number.isInteger(cfg.poll_interval) || cfg.poll_interval < 30) {
+        throw new Error('poll_interval must be >= 30 seconds');
+    }
+    if (!Number.isInteger(cfg.threads) || cfg.threads <= 0) {
+        throw new Error('threads must be > 0');
+    }
+    if (cfg.scanner_type !== 'nmap' && cfg.scanner_type !== 'arp-scan') {
+        throw new Error('scanner_type must be nmap or arp-scan');
+    }
+    return cfg;
+}
+
 let config: any;
 let hosts: any = {};
 let scanner: Scanner;
@@ -51,13 +103,15 @@ app.get('/api/v1/config', (req, res) => {
 
 app.put('/api/v1/config', async (req, res) => {
     try {
-        config = req.body;
+        const validated = validateConfig(req.body, config);
+        config = validated;
         await fs.writeFile(CONFIG_PATH, JSON.stringify(config, null, 2));
         res.json(config);
         // [R14] support hot-reload upon configuration changes
         scanner.updateConfig(config);
-    } catch (error) {
-        res.status(500).send('Error saving configuration');
+    } catch (error: any) {
+        console.error('Config validation error:', error);
+        res.status(400).send(error?.message || 'Error saving configuration');
     }
 });
 
@@ -212,16 +266,10 @@ async function main() {
     // [R34] If the hosts.json file is corrupted, the server must create a new empty one and continue execution.
     try {
         const configData = await fs.readFile(CONFIG_PATH, 'utf-8');
-        config = JSON.parse(configData);
+        config = validateConfig(JSON.parse(configData));
     } catch (error) {
         console.error("Error reading config.json, using default values", error);
-        config = {
-            "ip_range": "192.168.1.1-254",
-            "timeout": 1000,
-            "period": 0,
-            "threads": 4,
-            "poll_interval": 30
-        };
+        config = validateConfig({});
         await fs.writeFile(CONFIG_PATH, JSON.stringify(config, null, 2));
     }
 

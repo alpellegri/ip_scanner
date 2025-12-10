@@ -11,14 +11,14 @@ const HOSTS_PATH = './data/hosts.json';
 
 // [R25] Interface representing a host device in the network
 export interface Host {
-    ip: string[];           // Array of IP addresses associated with the MAC
-    hostname?: string;      // Device hostname if available
-    mac: string;           // MAC address if available (format: XX:XX:XX:XX:XX:XX)
-    name?: string;         // User-assigned name (takes precedence over hostname)
+    ip: string[];                // Array of IP addresses associated with the MAC
+    hostname?: string;           // Device hostname if available
+    mac: string;                 // MAC address (format: XX:XX:XX:XX:XX:XX)
+    name?: string;               // User-assigned name (takes precedence over hostname)
     status?: 'online' | 'offline';  // Current device status
-    lastSeen: number;      // Timestamp of last successful scan
-    manufacturer?: string; // Device manufacturer if available
-    latency: number | null;  // Network latency in milliseconds
+    last_seen: number;           // Timestamp of last successful scan (seconds)
+    manufacturer?: string;       // Device manufacturer if available
+    latency: number | null;      // Network latency in milliseconds
 }
 
 // Scanner type definition
@@ -90,7 +90,7 @@ class NmapScanner implements BaseScanner {
                         mac: '',
                         hostname,
                         latency: null,
-                        lastSeen: Date.now()
+                        last_seen: Math.floor(Date.now() / 1000)
                     };
                 } else if (macMatch && currentHost) {
                     currentHost.mac = macMatch[1].toUpperCase();
@@ -120,11 +120,6 @@ class NmapScanner implements BaseScanner {
 // Arp scanner implementation
 class ArpScanner implements BaseScanner {
     private convertIPRange(ipRange: string): string | null {
-        // Handle CIDR notation (e.g., 192.168.1.0/24)
-        if (ipRange.includes('/')) {
-            return ipRange;
-        }
-
         // Handle range notation (e.g., 192.168.1.1-253)
         const match = ipRange.match(/^(\d+\.\d+\.\d+\.)(\d+)-(\d+)$/);
         if (match) {
@@ -136,11 +131,7 @@ class ArpScanner implements BaseScanner {
                 return null;
             }
 
-            if (startNum === 0 && endNum === 255) {
-                return `${prefix}0/24`;
-            }
-
-            // For smaller ranges, list individual IPs
+            // List individual IPs to avoid CIDR support
             return Array.from(
                 { length: endNum - startNum + 1 },
                 (_, i) => `${prefix}${startNum + i}`
@@ -170,7 +161,7 @@ class ArpScanner implements BaseScanner {
         // Then use nping for latency measurement
         const promises = hosts.map(async (host) => {
             if (host.ip.length > 0) {
-                host.latency = await this.measureLatency(host.ip[0]);
+                host.latency = await this.measureLatency(host.ip[0], timeout);
             }
             return host;
         });
@@ -212,7 +203,7 @@ class ArpScanner implements BaseScanner {
                         ip: [ip],
                         mac: mac.toUpperCase(),
                         manufacturer: manufacturer.trim() || 'Unknown',
-                        lastSeen: Date.now(),
+                        last_seen: Math.floor(Date.now() / 1000),
                         latency: null,
                         status: 'online'
                     });
@@ -226,7 +217,7 @@ class ArpScanner implements BaseScanner {
         }
     }
 
-    private async measureLatency(ip: string): Promise<number | null> {
+    private async measureLatency(ip: string, timeout: number): Promise<number | null> {
         const command = `nping --tcp-connect -c 3 --delay 0 ${ip}`;
         try {
             const { stdout } = await new Promise<{stdout: string, stderr: string}>((resolve, reject) => {
@@ -295,7 +286,7 @@ export class Scanner {
                         mac: normalizedMac,
                         name: host.name || '',
                         status: host.status || 'offline',
-                        lastSeen: host.lastSeen || 0,
+                        last_seen: host.last_seen || 0,
                         manufacturer: host.manufacturer || 'Unknown',
                         latency: host.latency || null
                     };
@@ -312,7 +303,7 @@ export class Scanner {
                         mac: normalizedMac,
                         name: host.name || '',
                         status: host.status || 'offline',
-                        lastSeen: host.lastSeen || 0,
+                        last_seen: host.last_seen || 0,
                         manufacturer: host.manufacturer || 'Unknown',
                         latency: host.latency || null
                     };
@@ -336,7 +327,7 @@ export class Scanner {
                         mac: normalizedMac,
                         name: host.name || '',
                         status: host.status || 'offline',
-                        lastSeen: host.lastSeen || 0,
+                        last_seen: host.last_seen || 0,
                         manufacturer: host.manufacturer || 'Unknown',
                         latency: host.latency || null
                     };
@@ -353,7 +344,11 @@ export class Scanner {
     // [R14] Configuration update with dynamic behavior
     public updateConfig(newConfig: Config) {
         const oldPeriod = this.config.period;
+        const scannerChanged = this.config.scanner_type !== newConfig.scanner_type;
         this.config = newConfig;
+        if (scannerChanged) {
+            this.scanner = newConfig.scanner_type === 'nmap' ? new NmapScanner() : new ArpScanner();
+        }
 
         // Handle dynamic SCAN_PERIOD changes
         if (oldPeriod > 0 && newConfig.period === 0) {
@@ -539,7 +534,7 @@ export class Scanner {
                 // Update existing host
                 existingHost.ip = uniqueIps; // Replace IPs with the ones from the current scan
                 existingHost.status = 'online';
-                existingHost.lastSeen = now;
+                existingHost.last_seen = now;
                 existingHost.hostname = scanData.hostData.hostname || existingHost.hostname;
                 existingHost.manufacturer = scanData.hostData.manufacturer || existingHost.manufacturer;
                 existingHost.latency = scanData.hostData.latency !== undefined ? scanData.hostData.latency : existingHost.latency;
@@ -550,7 +545,7 @@ export class Scanner {
                     ip: uniqueIps,
                     mac: mac,
                     status: 'online',
-                    lastSeen: now,
+                    last_seen: now,
                     name: scanData.hostData.hostname && !this.isValidIP(scanData.hostData.hostname) ? scanData.hostData.hostname : '',
                 };
             }
@@ -592,7 +587,7 @@ export class Scanner {
                 hostname: host.hostname || '',
                 manufacturer: host.manufacturer || (mac.startsWith('IP-') ? 'Unknown (No MAC)' : 'Unknown'),
                 name: host.name || '',
-                lastSeen: host.lastSeen || Math.floor(Date.now() / 1000),
+                last_seen: host.last_seen || Math.floor(Date.now() / 1000),
                 latency: host.latency !== undefined ? host.latency : null,
                 status: host.status || 'offline'
             };

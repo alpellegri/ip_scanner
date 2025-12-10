@@ -1,6 +1,5 @@
 0. General Requirements and Structure
 [R0] Requirements must have an identifier with prefix R followed by a number, and optionally a dot with a secondary number. Gaps in numbering are allowed.
-[R0.1] The code must include, in comments, the indication of the implemented requirements.
 [R0.2] The code must include test cases for each requirement, with comments indicating the verified requirements.
 
 1. Requirements related to scanning functions
