@@ -3,7 +3,7 @@ FROM node:18-alpine
 WORKDIR /app
 
 # Install scanning tools
-RUN apk add --no-cache nmap arp-scan iputils
+RUN apk add --no-cache nmap nmap-nping arp-scan iputils
 
 # Copy package files and install dependencies
 COPY package*.json ./

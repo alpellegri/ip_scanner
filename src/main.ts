@@ -118,35 +118,23 @@ app.put('/api/v1/config', async (req, res) => {
 // [R30] /api/v1/hosts (GET full list, PATCH for partial updates, DELETE to remove devices)
 app.get('/api/v1/hosts', async (req, res) => {
     try {
-        // [R2, R13] Leggi direttamente dal file e calcola status e latency
-        const data = await fs.readFile(HOSTS_PATH, 'utf-8');
-        const fileHosts = JSON.parse(data);
-        
+        // [R2, R13, R25] Usa lo snapshot corrente dello scanner (status in memoria)
+        const snapshot = scanner.getHostsSnapshot();
         const response: HostsMap = {};
-        const now = Math.floor(Date.now() / 1000);
-        const SCAN_PERIOD = config.period || 0;
-        const SCAN_TIMEOUT = config.timeout || 1000;
-        
-        for (const [mac, host] of Object.entries(fileHosts)) {
-            const h = host as Host;
-            // [R25] Device status is determined solely by scanner response
-            // A device is updated as online only if it responds to the scanner tool
-            // An existing device becomes offline if it does not respond to the scanner tool
+        for (const [mac, host] of Object.entries(snapshot)) {
             response[mac] = {
-                ip: Array.isArray(h.ip) ? h.ip : [h.ip].filter(Boolean),
-                hostname: h.hostname || '',
-                manufacturer: h.manufacturer || '',
-                name: h.name || '',
-                last_seen: h.last_seen || 0,
-                status: h.status || 'offline',  // Use status directly from scanner
-                // [R13] latency è incluso se disponibile nel file
-                ...(h.latency !== undefined && { latency: h.latency })
+                ip: Array.isArray(host.ip) ? host.ip : [host.ip].filter(Boolean),
+                hostname: host.hostname || '',
+                manufacturer: host.manufacturer || '',
+                name: host.name || '',
+                last_seen: host.last_seen || 0,
+                status: host.status || 'offline',
+                ...(host.latency != null && { latency: host.latency })
             };
         }
-        
         res.json(response);
     } catch (error) {
-        console.error('Error reading hosts file:', error);
+        console.error('Error generating hosts response:', error);
         res.json({});
     }
 });
@@ -164,11 +152,11 @@ const deleteHostHandler = async (req: any, res: any) => {
 
         // Normalize the ID by removing non-alphanumeric characters and converting to lowercase
         const normalizedId = id.replace(/[^0-9a-fA-F]/g, '').toLowerCase();
-        
+
         // Leggi il file hosts.json
         const data = await fs.readFile(HOSTS_PATH, 'utf-8');
         const hostsData = JSON.parse(data);
-        
+
         // Find the host by normalized ID
         const idToDelete = Object.keys(hostsData).find(key => {
             const normalizedKey = key.replace(/[^0-9a-fA-F]/g, '').toLowerCase();
@@ -187,9 +175,12 @@ const deleteHostHandler = async (req: any, res: any) => {
 
         // Save the updated hosts to the file
         await fs.writeFile(HOSTS_PATH, JSON.stringify(hostsData, null, 2));
-        
+
         // Aggiorna anche la variabile in memoria
         hosts = hostsData;
+
+        // Remove from scanner memory as well
+        scanner.removeHost(idToDelete);
 
         console.log(`Host with ID ${id} (normalized: ${normalizedId}) deleted successfully`);
         res.json({ success: true, id: idToDelete });
@@ -212,7 +203,7 @@ app.patch('/api/v1/hosts', async (req, res) => {
     try {
         const { id, name } = req.body;
         console.log('Richiesta di aggiornamento ricevuta. ID:', id, 'Nuovo nome:', name);
-        
+
         if (!id) {
             return res.status(400).send('ID is required');
         }
@@ -222,7 +213,7 @@ app.patch('/api/v1/hosts', async (req, res) => {
         const hostsData = JSON.parse(data);
 
         // Cerca l'host per ID (senza fare distinzione tra maiuscole e minuscole)
-        const hostToUpdate = Object.keys(hostsData).find(key => 
+        const hostToUpdate = Object.keys(hostsData).find(key =>
             key && key.toLowerCase() === id.toLowerCase()
         );
 
@@ -230,7 +221,7 @@ app.patch('/api/v1/hosts', async (req, res) => {
             // Aggiorna il nome dell'host
             hostsData[hostToUpdate].name = name;
             await fs.writeFile(HOSTS_PATH, JSON.stringify(hostsData, null, 2));
-            
+
             // Aggiorna anche la variabile in memoria
             hosts = hostsData;
 
@@ -281,7 +272,7 @@ async function main() {
         hosts = {};
         await fs.writeFile(HOSTS_PATH, JSON.stringify(hosts, null, 2));
     }
-    
+
     // [R35] At startup, the server must verify the availability of necessary privileges
     if (process.getuid && process.getuid() !== 0) {
         console.error("Error: root privileges are required to run nmap scans.");

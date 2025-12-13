@@ -26,12 +26,12 @@ export type ScannerType = 'nmap' | 'arp-scan';
 
 // Base scanner interface
 interface BaseScanner {
-    scan(ipRange: string, timeout: number, threads: number): Promise<Host[]>;
+    scan(ipRange: string, timeout: number, threads: number): Promise<Host[] | null>;
 }
 
 // Nmap scanner implementation
 class NmapScanner implements BaseScanner {
-    async scan(ipRange: string, timeout: number, threads: number): Promise<Host[]> {
+    async scan(ipRange: string, timeout: number, threads: number): Promise<Host[] | null> {
         const command = `nmap -sP -PR -n --send-eth \
             -T${threads} \
             --host-timeout ${timeout * 2}ms \
@@ -45,9 +45,9 @@ class NmapScanner implements BaseScanner {
         return this.executeCommand(command);
     }
 
-    private async executeCommand(command: string): Promise<Host[]> {
+    private async executeCommand(command: string): Promise<Host[] | null> {
         try {
-            const { stdout, stderr } = await new Promise<{stdout: string, stderr: string}>((resolve, reject) => {
+            const { stdout, stderr } = await new Promise<{ stdout: string, stderr: string }>((resolve, reject) => {
                 exec(command, (error, stdout, stderr) => {
                     if (error && error.code !== 1) { // nmap returns 1 when no hosts are up
                         console.error(`nmap error: ${error.message}`);
@@ -112,7 +112,7 @@ class NmapScanner implements BaseScanner {
             return hosts;
         } catch (error) {
             console.error('Error executing nmap command:', error);
-            return [];
+            return null;
         }
     }
 }
@@ -126,7 +126,7 @@ class ArpScanner implements BaseScanner {
             const [, prefix, start, end] = match;
             const startNum = parseInt(start);
             const endNum = parseInt(end);
-            
+
             if (startNum < 0 || startNum > 255 || endNum < 0 || endNum > 255 || startNum > endNum) {
                 return null;
             }
@@ -146,7 +146,7 @@ class ArpScanner implements BaseScanner {
         return null;
     }
 
-    async scan(ipRange: string, timeout: number, threads: number): Promise<Host[]> {
+    async scan(ipRange: string, timeout: number, threads: number): Promise<Host[] | null> {
         // Convert IP range format from nmap style (192.168.1.1-253) to CIDR notation for arp-scan
         const convertedRange = this.convertIPRange(ipRange);
         if (!convertedRange) {
@@ -157,7 +157,9 @@ class ArpScanner implements BaseScanner {
         // First do arp-scan to get MAC addresses
         const scanCommand = `arp-scan --timeout=${timeout} --retry=3 --backoff=2 ${convertedRange}`;
         const hosts = await this.executeScan(scanCommand);
-        
+
+        if (hosts === null) return null;
+
         // Then use nping for latency measurement
         const promises = hosts.map(async (host) => {
             if (host.ip.length > 0) {
@@ -169,9 +171,9 @@ class ArpScanner implements BaseScanner {
         return Promise.all(promises);
     }
 
-    private async executeScan(command: string): Promise<Host[]> {
+    private async executeScan(command: string): Promise<Host[] | null> {
         try {
-            const { stdout, stderr } = await new Promise<{stdout: string, stderr: string}>((resolve, reject) => {
+            const { stdout, stderr } = await new Promise<{ stdout: string, stderr: string }>((resolve, reject) => {
                 exec(command, (error, stdout, stderr) => {
                     if (error && error.code !== 1) { // arp-scan returns 1 when no hosts are up
                         console.error(`arp-scan error: ${error.message}`);
@@ -213,14 +215,14 @@ class ArpScanner implements BaseScanner {
             return hosts;
         } catch (error) {
             console.error('Error executing arp-scan command:', error);
-            return [];
+            return null;
         }
     }
 
     private async measureLatency(ip: string, timeout: number): Promise<number | null> {
         const command = `nping --tcp-connect -c 3 --delay 0 ${ip}`;
         try {
-            const { stdout } = await new Promise<{stdout: string, stderr: string}>((resolve, reject) => {
+            const { stdout } = await new Promise<{ stdout: string, stderr: string }>((resolve, reject) => {
                 exec(command, (error, stdout, stderr) => {
                     if (error) {
                         console.error(`nping error: ${error.message}`);
@@ -272,7 +274,7 @@ export class Scanner {
         this.config = config;
         this.hosts = {};
         this.scanner = config.scanner_type === 'nmap' ? new NmapScanner() : new ArpScanner();
-        
+
         // Initialize hosts from existing data
         if (Array.isArray(hosts)) {
             // Convert array to object with MAC keys
@@ -316,24 +318,31 @@ export class Scanner {
         try {
             const hostsData = await fs.readFile(HOSTS_PATH, 'utf-8');
             const hostsFromFile = JSON.parse(hostsData);
-            
-            this.hosts = {}; // Clear existing hosts
+
+            // Create new hosts map but preserve state from existing hosts
+            const newHosts: { [mac: string]: Host } = {};
+
             Object.entries(hostsFromFile).forEach(([key, host]: [string, any]) => {
                 if (this.isValidMAC(key)) {
                     const normalizedMac = this.normalizeMacAddress(key);
-                    this.hosts[normalizedMac] = {
+                    const existingHost = this.hosts[normalizedMac];
+
+                    newHosts[normalizedMac] = {
                         ip: Array.isArray(host.ip) ? host.ip : [],
                         hostname: host.hostname || '',
                         mac: normalizedMac,
                         name: host.name || '',
-                        status: host.status || 'offline',
-                        last_seen: host.last_seen || 0,
+                        // Preserve existing status and metrics if available
+                        status: existingHost?.status || host.status || 'offline',
+                        last_seen: existingHost?.last_seen || host.last_seen || 0,
                         manufacturer: host.manufacturer || 'Unknown',
-                        latency: host.latency || null
+                        latency: existingHost?.latency || host.latency || null
                     };
                 }
             });
-            console.log('Scanner hosts reloaded from file.');
+
+            this.hosts = newHosts;
+            console.log('Scanner hosts reloaded from file (state preserved).');
         } catch (error: any) {
             if (error.code !== 'ENOENT') {
                 console.error("Error reloading hosts.json for scanner:", error);
@@ -367,7 +376,7 @@ export class Scanner {
     // [R29] Start periodic scanning
     public start() {
         this.stop(); // Ensure no existing timer
-        
+
         if (this.config.period > 0) {
             console.log(`Starting periodic scan every ${this.config.period} seconds`);
             this.timer = setInterval(() => this.scan(), this.config.period * 1000);
@@ -396,6 +405,15 @@ export class Scanner {
         return this.lastScanTime;
     }
 
+    // Snapshot of current hosts with status/latency (used by API)
+    public getHostsSnapshot(): { [mac: string]: Host } {
+        const copy: { [mac: string]: Host } = {};
+        for (const [mac, host] of Object.entries(this.hosts)) {
+            copy[mac] = { ...host };
+        }
+        return copy;
+    }
+
     public isScanning(): boolean {
         return this.scanning;
     }
@@ -403,7 +421,7 @@ export class Scanner {
     // Validate MAC address format (both physical and virtual)
     private isValidMAC(mac: string | null | undefined): boolean {
         if (!mac) return false;
-        
+
         // Only accept physical MAC addresses (XX:XX:XX:XX:XX:XX)
         const cleanMac = mac.replace(/[^0-9A-Fa-f]/g, '');
         return cleanMac.length === 12;
@@ -412,18 +430,18 @@ export class Scanner {
     // [R25] Normalize MAC address to XX:XX:XX:XX:XX:XX format - only physical MACs
     private normalizeMacAddress(mac: string | null | undefined): string {
         if (!mac) return '';
-        
+
         // Only handle physical MAC addresses
         const normalized = mac.replace(/[^0-9A-Fa-f]/g, '').toUpperCase();
-        
+
         // Return empty string if not a valid MAC
         if (normalized.length !== 12) {
             return '';
         }
-        
+
         // Format valid MAC with colons
         return normalized.replace(/([0-9A-F]{2})(?=[0-9A-F]{2})/g, '$1:');
-        
+
         return '';
     }
 
@@ -434,7 +452,7 @@ export class Scanner {
         if (!ip) return false;
         const parts = ip.split('.');
         if (parts.length !== 4) return false;
-        
+
         return parts.every(part => {
             const num = parseInt(part, 10);
             return !isNaN(num) && num >= 0 && num <= 255 && num.toString() === part;
@@ -458,6 +476,12 @@ export class Scanner {
                 this.config.timeout,
                 this.config.threads
             );
+
+            if (onlineHosts === null) {
+                console.warn('Scan returned null (error occurred). Skipping host update to preserve state.');
+                return;
+            }
+
             await this.updateHosts(onlineHosts);
             // Ensure hosts.json is saved after updating hosts
             await this.saveToFile();
@@ -484,11 +508,11 @@ export class Scanner {
             }
 
             const newIps = (Array.isArray(onlineHost.ip) ? onlineHost.ip : [onlineHost.ip]).filter(ip => this.isValidIP(ip));
-            
+
             if (!onlineMacs.has(normalizedMac)) {
                 onlineMacs.set(normalizedMac, { ips: [], hostData: onlineHost });
             }
-            
+
             const entry = onlineMacs.get(normalizedMac)!;
             entry.ips.push(...newIps);
             // Update hostData with potentially more complete info (e.g., latency)
@@ -503,26 +527,9 @@ export class Scanner {
             }
         }
 
-        // Step 2: Mark all hosts as offline and find stale entries
-        const staleMacs: string[] = [];
-        for (const [mac, host] of Object.entries(this.hosts)) {
+        // Step 2: Mark all hosts as offline (do not delete to preserve names)
+        for (const [, host] of Object.entries(this.hosts)) {
             host.status = 'offline';
-
-            const isStale = host.ip.some(ip => {
-                const onlineMacForIp = onlineIpToMac.get(ip);
-                // Stale if the IP is online with a *different* MAC
-                return onlineMacForIp && onlineMacForIp !== mac;
-            });
-
-            if (isStale) {
-                staleMacs.push(mac);
-            }
-        }
-
-        // Remove stale entries
-        for (const mac of staleMacs) {
-            console.log(`[INFO] Removing stale host entry ${mac} because its IP is now used by another active host.`);
-            delete this.hosts[mac];
         }
 
         // Step 3: Iterate through the online MACs and update the main hosts list.
@@ -559,10 +566,9 @@ export class Scanner {
     // Make saveToFile public
     public async saveToFile() {
         const dataToSave: { [key: string]: any } = {};
-        const now = Math.floor(Date.now() / 1000);
-        
+
         console.log(`[R25] Saving ${Object.keys(this.hosts).length} hosts to file`);
-        
+
         // Transform data to ensure correct format
         for (const [mac, host] of Object.entries(this.hosts)) {
             // Only save hosts with valid physical MAC addresses
@@ -570,17 +576,31 @@ export class Scanner {
                 console.warn(`[R25] Skipping host with invalid MAC key: ${mac}`);
                 continue;
             }
-            
+
             // Filter out invalid IPs
-            const validIps = Array.isArray(host.ip) 
+            const validIps = Array.isArray(host.ip)
                 ? host.ip.filter(ip => this.isValidIP(ip))
                 : [];
-            
+
+            // If the host has a user-assigned name, we might want to keep it even without IPs
+            // But requirement says "device in the network". 
+            // Standard behavior: if we have tracking info (name), keep it.
+            // If it's a transient device essentially gone, maybe drop it?
+            // Current login was: if validIps.length === 0 continue.
+            // Let's stick to current logic to match existing behavior roughly, 
+            // but be careful about persistent devices the user named.
+            // Actually, if we want to support "offline" devices staying in the list,
+            // we should save them even if they have no current IP (if they are offline).
+            // However, the original code had:
+            // if (validIps.length === 0) continue;
+            // This effectively deletes offline devices that lost their IP lease or we forgot their IP?
+            // No, offline devices in `this.hosts` still keep their last known IP in `host.ip`.
+
             if (validIps.length === 0) {
                 console.warn(`[R25] Skipping host ${mac} without valid IPs`);
                 continue;
             }
-            
+
             // [R25] Save only required fields in the correct format
             dataToSave[mac] = {
                 ip: validIps,
@@ -588,8 +608,7 @@ export class Scanner {
                 manufacturer: host.manufacturer || (mac.startsWith('IP-') ? 'Unknown (No MAC)' : 'Unknown'),
                 name: host.name || '',
                 last_seen: host.last_seen || Math.floor(Date.now() / 1000),
-                latency: host.latency !== undefined ? host.latency : null,
-                status: host.status || 'offline'
+                latency: host.latency !== undefined ? host.latency : null
             };
         }
 
@@ -602,6 +621,15 @@ export class Scanner {
             console.error('[R25] Error saving hosts file:', error);
             // Don't throw the error to maintain scanning operation
             console.error('[R34] Continuing operation despite file save error');
+        }
+    }
+
+    public removeHost(mac: string) {
+        if (!this.isValidMAC(mac)) return;
+        const normalizedMac = this.normalizeMacAddress(mac);
+        if (this.hosts[normalizedMac]) {
+            delete this.hosts[normalizedMac];
+            console.log(`Removed host ${normalizedMac} from scanner memory`);
         }
     }
 }
